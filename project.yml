@@ -1,0 +1,66 @@
+name: ChromaCascade
+
+options:
+  bundleIdPrefix: com.chromacascade
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    # Swift 6 language mode turns a pile of benign SpriteKit main-actor patterns
+    # into hard errors; the game is single-threaded UI code, so 5.0 it is.
+    SWIFT_STRICT_CONCURRENCY: minimal
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+
+targets:
+  ChromaCascade:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+
+    sources:
+      - path: ChromaCascade/Sources
+      - path: ChromaCascade/Resources
+        buildPhase: resources
+
+    settings:
+      base:
+        PRODUCT_NAME: ChromaCascade
+        PRODUCT_BUNDLE_IDENTIFIER: com.chromacascade.game
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_BITCODE: NO
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: NO
+        # Unsigned by default so a build works with no Apple Developer account.
+        # The signed Codemagic workflow overrides these on the command line.
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_STYLE: Manual
+
+    info:
+      path: ChromaCascade/Info.plist
+      properties:
+        CFBundleDisplayName: Chroma Cascade
+        CFBundleName: ChromaCascade
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UIApplicationSupportsIndirectInputEvents: true
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        UIUserInterfaceStyle: Dark
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIRequiredDeviceCapabilities:
+          - arm64

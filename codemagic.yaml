@@ -1,0 +1,79 @@
+workflows:
+
+  # ---------------------------------------------------------------------------
+  # Default workflow: produces an unsigned .ipa. Needs no Apple Developer
+  # account, no certificates and no Codemagic integrations — press Start build
+  # and download the artifact.
+  # ---------------------------------------------------------------------------
+  ios-unsigned:
+    name: Chroma Cascade — unsigned IPA
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+      vars:
+        SCHEME: ChromaCascade
+    scripts:
+      - name: Install XcodeGen
+        script: |
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+          xcodegen --version
+      - name: Build unsigned IPA
+        script: |
+          chmod +x scripts/build-unsigned-ipa.sh
+          ./scripts/build-unsigned-ipa.sh
+    artifacts:
+      - build/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      email:
+        recipients:
+          - noahjovanovic96@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  # ---------------------------------------------------------------------------
+  # Signed workflow — only usable once you have an Apple Developer Program
+  # membership ($99/yr) and have connected an App Store Connect API key to
+  # Codemagic under the integration name `codemagic`.
+  #
+  # Before the first run:
+  #   1. Codemagic → Teams → Integrations → App Store Connect → add your key.
+  #   2. Register the bundle id com.chromacascade.game in your developer account.
+  #   3. Start this workflow instead of ios-unsigned.
+  # ---------------------------------------------------------------------------
+  ios-signed:
+    name: Chroma Cascade — signed IPA (needs Apple Developer account)
+    max_build_duration: 45
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: codemagic
+    environment:
+      xcode: latest
+      ios_signing:
+        distribution_type: development
+        bundle_identifier: com.chromacascade.game
+      vars:
+        SCHEME: ChromaCascade
+        BUNDLE_ID: com.chromacascade.game
+    scripts:
+      - name: Install XcodeGen
+        script: |
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+      - name: Generate Xcode project
+        script: xcodegen generate
+      - name: Apply provisioning profiles
+        script: xcode-project use-profiles
+      - name: Build signed IPA
+        script: |
+          xcode-project build-ipa \
+            --project "ChromaCascade.xcodeproj" \
+            --scheme "$SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      email:
+        recipients:
+          - noahjovanovic96@gmail.com
