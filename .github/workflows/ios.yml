@@ -6,6 +6,11 @@ on:
       - main
       - "claude/**"
   workflow_dispatch:
+    inputs:
+      smoke_test:
+        description: "Also boot the app in a simulator and capture screenshots"
+        type: boolean
+        default: true
 
 concurrency:
   group: ios-${{ github.ref }}
@@ -15,7 +20,7 @@ jobs:
   build:
     name: Build (unsigned)
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -41,9 +46,23 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # A green compile does not mean the game runs. This boots it in a
-      # simulator, lets it play itself and screenshots the result.
-      - name: Runtime smoke test
+  # Booting a simulator costs several minutes of wall clock, and macOS runner
+  # minutes bill at 10x on a private repo — so this is opt-in
+  # (Actions → Build unsigned IPA → Run workflow) rather than running on every
+  # push. The IPA job above stays fast enough to run every time.
+  smoke-test:
+    name: Runtime smoke test
+    if: github.event_name == 'workflow_dispatch' && inputs.smoke_test
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Boot the app and capture screenshots
         run: |
           chmod +x scripts/smoke-test.sh
           ./scripts/smoke-test.sh
