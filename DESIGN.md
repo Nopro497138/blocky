@@ -3,7 +3,7 @@
 **Genre:** Block puzzle / colour-chain arcade
 **Platform:** iOS 15+ (iPhone, portrait)
 **Tech:** Swift + SpriteKit, no third-party dependencies
-**Session length:** ~4–7 minutes per run
+**Session length:** ~3–5 minutes per run
 
 ---
 
@@ -20,13 +20,14 @@ the 2D packing puzzle, but replaces the entire clearing rule:
 | Clear condition | complete row/column | **5+ connected cells of the same colour** |
 | Colour | cosmetic | **the core mechanic** |
 | Gravity | none | **only as the aftershock of a detonation** |
-| Chains | impossible | **cascades: a blast drops blocks, forming new groups → ×1.4, ×2, ×3 …** |
+| Reward | fixed per line | **quadratic in group size — big blobs pay enormously** |
 | Difficulty | static | **8 stages: more colours, larger groups required** |
-| Skill ceiling | packing efficiency | packing **+ colour planning for multi-chains** |
+| Skill ceiling | packing efficiency | packing **+ colour planning to grow one huge cluster** |
 
-The dopamine loop is the *cascade*: you build a colour structure over several
-turns, then one placement detonates a four-step chain that eats half the board
-while the blast tone climbs a pentatonic scale and the screen shakes.
+The dopamine loop is the *big blast*: you spend a dozen turns feeding one
+colour into a single growing blob, resisting the urge to cash it in, and then
+detonate twenty blocks at once while the tone climbs a pentatonic scale, the
+screen shakes and the banner reads SUPERNOVA.
 
 ---
 
@@ -38,19 +39,31 @@ while the blast tone climbs a pentatonic scale and the screen shakes.
 3. **Resolve:** every orthogonally connected group of ≥ `threshold` same-colour
    cells detonates simultaneously.
 4. **Aftershock:** every surviving cell falls down its column.
-5. If the landing formed a group of ≥ 3 same-colour cells → detonate again with
-   `chain += 1`. Each rung scores harder, sounds higher and shakes more.
+5. If the landing formed another big enough group **of the same colour** →
+   detonate again with `chain += 1`. Each rung scores harder.
 6. Tray empty → refill with three new pieces.
 7. **Game over** when none of the tray pieces fits anywhere *and* no power-up
    charge is left.
 
-### 2.1 The two thresholds — the most important rule in the game
+### 2.1 Blasts are colour-honest, and size is the reward
 
-Starting a blast needs a **big** group (5, rising to 10 by the last stage).
-Continuing a cascade needs only **3**.
+Two rules do the heavy lifting:
 
-Fiction: the shockwave destabilises smaller clusters. Function: it decouples
-*pressure* from *payoff*. A single threshold cannot do both — see §8.
+1. **A cascade stays inside the colour that started it.** A follow-up rung can
+   only detonate more of the *same* colour.
+2. **A follow-up rung needs one cell fewer than the opening one**, not a flat
+   small number.
+
+An earlier build had follow-up rungs fire at 3 cells of *any* colour. At stage 7
+— where starting a blast asks for 9 cells — that meant one placement could
+unravel clumps of all six colours in sequence. It played like the board falling
+apart on its own, and it made the game trivially easy. See §8.4.
+
+The consequence is that **group size, not chain depth, is the thing to chase.**
+Scoring reflects that: the bonus for overshooting the requirement is quadratic,
+so one 20-block blob is worth far more than four 5-block ones. Every feedback
+channel — banner text, blast pitch, haptic strength, screen shake — scales with
+overshoot rather than with rung count.
 
 ### 2.2 Placement locks, blasts pull
 
@@ -78,28 +91,28 @@ packing puzzle and Puyo-style cascades:
 | Stage | From turn | Colours | Cells to blast | Piece sizes |
 |---|---|---|---|---|
 | 1 SPARK | 0 | 4 | 5 | 1–4 |
-| 2 FLUX | 15 | 5 | 5 | 1–4 |
-| 3 SURGE | 35 | 5 | 6 | 1–5 |
-| 4 PRISM | 60 | 6 | 6 | 2–5 |
-| 5 NOVA | 85 | 6 | 7 | 2–5 |
-| 6 PULSAR | 115 | 6 | 8 | 3–5 |
-| 7 QUASAR | 150 | 6 | 9 | 3–5 |
-| 8 SINGULARITY | 200 | 6 | 10 | 4–5 |
+| 2 FLUX | 10 | 5 | 5 | 1–4 |
+| 3 SURGE | 24 | 5 | 6 | 1–5 |
+| 4 PRISM | 40 | 6 | 7 | 2–5 |
+| 5 NOVA | 60 | 6 | 8 | 2–5 |
+| 6 PULSAR | 85 | 6 | 9 | 3–5 |
+| 7 QUASAR | 115 | 6 | 10 | 3–5 |
+| 8 SINGULARITY | 150 | 6 | 11 | 4–5 |
 
 Score was tried as the clock first and had to be abandoned: players plateau at
 exactly the score where their skill stops paying, so the stage stops advancing
 and the run never ends (§8.2). Turn count escalates unconditionally, so skill
 converts into *score*, not into immortality, and every run builds to a climax.
 
-The chain threshold stays at **3** for the whole game. Cascades are the reward;
-they never get harder.
+Follow-up rungs always ask for one cell fewer than the opening requirement, at
+every stage — cascades never become the cheap option.
 
 ## 5. Scoring
 
 ```
-groupScore  = 10·n + 5·max(0, n − t)²        n = cells, t = threshold of the rung
+groupScore  = 10·n + 6·max(0, n − t)²        n = cells, t = threshold of the rung
 stepScore   = Σ groupScore over all groups in the rung
-chainMult   = [1, 1.4, 2, 3, 4.5, 6.5, 9, 12, 16, 21]   (clamped at the last)
+chainMult   = [1, 1.6, 2.4, 3.6, 5.2, 7.5, 10, 14, 19, 25]  (clamped at the last)
 simultaneity= 1 + 0.25 · (groups in this rung − 1)
 turnScore   = Σ stepScore · chainMult[rung] · simultaneity · feverMult
 ```
@@ -109,20 +122,31 @@ turnScore   = Σ stepScore · chainMult[rung] · simultaneity · feverMult
 * A placement that detonates anything adds `1 + chainDepth` heat; one that does
   not drains `0.5`. At **10** heat → **FEVER**.
 * Fever lasts 8 placements, extended by 2 for every blast during it, and:
-  * takes **2 cells off** the blast requirement (never below chain threshold+1),
-  * doubles all score,
+  * **triples** all score,
+  * restricts the tray to the **two colours the board already holds most of**,
   * switches the music, pulses the background magenta/amber, recolours the board
     frame.
+* Fever deliberately does **not** lower the blast requirement. That was the
+  original design and it was wrong: blasting became automatic, the board cleared
+  itself, and the player stopped mattering during the most exciting part of the
+  run. Narrowing the palette instead turns fever into an *opportunity* — the
+  game hands you the material to assemble one enormous cluster, and you still
+  have to place it.
 * Fever ends at heat 8 rather than 0, so re-entry stays reachable.
 
-Measured: ~3.5 Fever phases per run for the human proxy.
+Measured: ~3 Fever phases per run for the human proxy.
 
 ## 7. Power-ups (earned, never bought)
 
 | Power-up | Earned | Effect |
 |---|---|---|
-| **Bomb** | every 6 000 points | tap a cell → 3×3 destroyed, then cascades normally |
-| **Reroll** | every 9 000 points | replaces all three tray pieces |
+| **Bomb** | every 4 000 points | tap a cell → 3×3 destroyed, then cascades normally |
+| **Reroll** | every 6 000 points | replaces all three tray pieces |
+| **Hint** | free, once per 4 placements | highlights the strongest placement available |
+
+The hint runs the real `CascadeResolver` on a copy of the board, so it can never
+suggest something the game would score differently. It is rate-limited on
+purpose: an always-available perfect suggestion plays the game for the player.
 
 Max 3 charges each. **A stored charge also defers death:** running out of moves
 is only fatal with an empty inventory. Being rescued at the last second by a
@@ -153,6 +177,21 @@ Second version: stages advanced by score. Players converge on the score where
 their skill stops paying, the stage stops advancing, and the run becomes
 infinite: **89 % of human-proxy runs hit the placement cap, all of them parked
 in stage 4.** Turn count fixed it outright.
+
+### 8.4 Cheap any-colour follow-up rungs → the board dissolves itself
+
+The build below (§8.3) shipped with follow-up rungs fixed at 3 cells, matching
+*any* colour. Playtesting showed what the simulator's aggregate numbers had
+hidden: the "deep chains" it produced were not built by the player at all. At
+the late stages the gap between the opening requirement (9–11) and the
+follow-up (3) was so wide that one placement set off a self-sustaining
+demolition across every colour, and fever — which lowered the opening
+requirement too — made it near-continuous.
+
+Fixing it (same colour only, follow-up = opening − 1) cut chains of depth ≥ 3
+from ~5 per run to ~0.1. That is not a regression: it is the measurement of how
+much of the old spectacle was unearned. The reward moved to group size, which is
+the thing this rule set actually lets a player build deliberately.
 
 ### 8.3 A single threshold → either no pressure or no chains
 
@@ -188,10 +227,11 @@ Human proxy, 150 runs, final configuration:
 
 | Metric | Target | Measured |
 |---|---|---|
-| median run length | 60–200 placements | **204** |
+| median run length | 100–150 placements | **115** |
 | runs that never end | 0 % | **0 %** |
-| placements that detonate something | 30–50 % | **33 %** |
-| chains of depth ≥ 3 per run | 3–10 | **5** |
-| Fever entries per run | 1–4 | **3.5** |
-| random-player floor | should die fast | **104 placements** |
-| expert (1-ply search) | should last, still die | **347 median, 0 immortal** |
+| placements that detonate something | 30–45 % | **33 %** |
+| blasts of 10+ cells per run | 5–12 | **9.2** |
+| blasts of 15+ cells per run | rare, memorable | **0.4** |
+| Fever entries per run | 1–4 | **3** |
+| random-player floor | should die fast | **50 placements** |
+| expert (1-ply search) | should last, still die | **245 median, 0 immortal** |

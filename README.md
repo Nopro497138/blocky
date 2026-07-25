@@ -4,12 +4,14 @@ A neon block puzzle for iOS. You drag block shapes onto a grid like you would in
 Block Blast — but nothing clears by filling a row. **Colour** is the mechanic:
 
 > Connect **5+ blocks of one colour** and the whole group detonates. Everything
-> above the hole **falls down**. If the landing forms **3+ of a colour**, it
-> blasts again — and again — as a **chain** at ×1.4, ×2, ×3, ×4.5 …
+> above the hole falls down, and the cascade continues **only in that same
+> colour**.
 
-That asymmetry (hard to *start* a blast, easy to *continue* one) is the whole
-game: a single well-placed block can eat half the board while the blast tone
-climbs a pentatonic scale and the screen shakes.
+Scoring grows with the *square* of the group size, so the game is a race to
+assemble one enormous single-colour blob before the board fills. A 20-block
+detonation is worth more than four 5-block ones — and the banner, the blast
+pitch, the haptics and the screen shake all scale with how big you managed to
+build it.
 
 Built in Swift + SpriteKit, no third-party dependencies, no ads, no IAP.
 
@@ -22,11 +24,12 @@ Built in Swift + SpriteKit, no third-party dependencies, no ads, no IAP.
 | **Board** | 8 × 10 |
 | **Tray** | 3 pieces, refills when all three are used |
 | **Placement** | pieces lock exactly where you drop them — gravity only applies as the aftershock of a detonation |
-| **Blast** | 5+ connected same-colour cells (rises to 10 in the last stage) |
-| **Chain** | follow-up rungs need only 3 |
-| **Heat / Fever** | chains fill a meter; Fever = ×2 score, easier blasts, different music, for 8 moves |
-| **Stages** | every 15–50 placements: more colours, bigger groups required, chunkier pieces |
+| **Blast** | 5+ connected same-colour cells (rises to 11 in the last stage) |
+| **Chain** | continues only in the colour that started it, and needs one cell fewer than the opening |
+| **Heat / Fever** | blasts fill a meter; Fever = ×3 score and the tray narrows to your 2 most common colours for 8 moves |
+| **Stages** | every 10–35 placements: more colours, bigger groups required, chunkier pieces |
 | **Power-ups** | Bomb (3×3) and Reroll, earned by score — and they rescue you from an otherwise fatal dead end |
+| **Hint** | free every 4 placements: ranks every legal placement and highlights the best one |
 | **Game over** | when no tray piece fits anywhere and you have no charges left |
 
 Full design rationale, including why the first two versions of the rule set were
@@ -132,7 +135,7 @@ node tools/simulate.js 150     # run distributions for all three policies
 node tools/sweep.js 40         # sweep board size / thresholds / piece pools
 ```
 
-Current numbers for the human proxy: median 204 placements per run, 33 % of
-placements detonate something, ~5 chains of depth ≥ 3 and ~3.5 Fever phases per
-run, and 0 % of runs fail to terminate. Change `CFG` in `tools/simulate.js` and
+Current numbers for the human proxy: median 115 placements per run, 33 % of
+placements detonate something, ~9 blasts of 10+ blocks and ~3 Fever phases per
+run, and 0 % of runs fail to terminate for any policy. Change `CFG` in `tools/simulate.js` and
 mirror the winning values into `ChromaCascade/Sources/Engine/GameConfig.swift`.
