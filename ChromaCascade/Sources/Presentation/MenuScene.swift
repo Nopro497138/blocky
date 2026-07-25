@@ -261,14 +261,14 @@ final class MenuScene: SKScene {
     }
 
     private func showHowToPlay() {
-        let card = panel(height: 430)
+        let card = panel(height: 476)
 
         let title = SKLabelNode(fontNamed: Theme.fontHeavy)
         title.text = "HOW TO PLAY"
         title.fontSize = 26
         title.fontColor = Theme.textPrimary
         title.verticalAlignmentMode = .center
-        title.position = CGPoint(x: 0, y: 178)
+        title.position = CGPoint(x: 0, y: 202)
         card.addChild(title)
 
         let lines: [(String, UIColor)] = [
@@ -278,17 +278,20 @@ final class MenuScene: SKScene {
             ("Connect 5+ blocks of ONE colour", Theme.accent),
             ("and the whole group detonates.", Theme.textSecondary),
             ("", Theme.textSecondary),
-            ("Blocks above a blast FALL DOWN.", Theme.feverB),
-            ("If that forms 3+ of a colour, it blasts", Theme.textSecondary),
-            ("again — that is a CHAIN. ×1.4, ×2, ×3…", Theme.textSecondary),
+            ("BIGGER IS EVERYTHING. Score grows", Theme.feverB),
+            ("with the square of the group size —", Theme.textSecondary),
+            ("one 20-block blast beats four small ones.", Theme.textSecondary),
             ("", Theme.textSecondary),
-            ("Chains fill the HEAT bar. Fill it and", Theme.feverA),
-            ("FEVER doubles score and makes", Theme.textSecondary),
-            ("blasting easier for 8 moves.", Theme.textSecondary),
+            ("Blocks above a blast fall down, and a", Theme.textPrimary),
+            ("cascade continues only in the SAME", Theme.textSecondary),
+            ("colour that started it.", Theme.textSecondary),
             ("", Theme.textSecondary),
-            ("Every 15–50 moves the stage rises:", Theme.textPrimary),
-            ("more colours, bigger groups needed.", Theme.textSecondary),
-            ("Game over when nothing fits.", Theme.textSecondary),
+            ("Blasts fill the HEAT bar. At full, FEVER", Theme.feverA),
+            ("triples score and the tray gives you only", Theme.textSecondary),
+            ("your 2 most common colours — your", Theme.textSecondary),
+            ("chance to build something enormous.", Theme.textSecondary),
+            ("", Theme.textSecondary),
+            ("Stuck? HINT shows the best placement.", Theme.positive),
         ]
         for (index, line) in lines.enumerated() {
             guard !line.0.isEmpty else { continue }
@@ -297,13 +300,13 @@ final class MenuScene: SKScene {
             label.fontSize = 14
             label.fontColor = line.1
             label.verticalAlignmentMode = .center
-            label.position = CGPoint(x: 0, y: 140 - CGFloat(index) * 18)
+            label.position = CGPoint(x: 0, y: 164 - CGFloat(index) * 17)
             card.addChild(label)
         }
 
         let close = PillButton(title: "GOT IT", width: 200, height: 46, tint: Theme.positive,
                                fontSize: 18, identifier: "btn.close")
-        close.position = CGPoint(x: 0, y: -172)
+        close.position = CGPoint(x: 0, y: -202)
         card.addChild(close)
     }
 

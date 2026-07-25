@@ -22,12 +22,18 @@ const CFG = {
   rows: 10,
   dangerRows: 2,
   baseThreshold: null, // null = driven by the stage table below
-  chainThreshold: 3,
+  // How many cells fewer than the opening threshold a follow-up rung needs.
+  // 0 = every rung is as hard as the first.
+  chainRelief: 1,
+  // When true a cascade stays inside the colour that started it.
+  monoColorChain: true,
   feverHeatNeeded: 10,
   feverHeatDrain: 0.5,
   feverPlacements: 8,
   feverExtendPerBlast: 2,
   feverHeatAfter: 8,
+  feverPaletteSize: 2,
+  feverScoreMult: 3,
   chainMult: [1, 1.4, 2, 3, 4.5, 6.5, 9, 12, 16, 21],
   simultaneityBonus: 0.25,
   safetyCap: 4000,
@@ -37,13 +43,13 @@ const CFG = {
   // to a climax and ends — skill converts into score, not into immortality.
   stages: [
     { turn: 0, colors: 4, threshold: 5, minPiece: 1, maxPiece: 4 },
-    { turn: 15, colors: 5, threshold: 5, minPiece: 1, maxPiece: 4 },
-    { turn: 35, colors: 5, threshold: 6, minPiece: 1, maxPiece: 5 },
-    { turn: 60, colors: 6, threshold: 6, minPiece: 2, maxPiece: 5 },
-    { turn: 85, colors: 6, threshold: 7, minPiece: 2, maxPiece: 5 },
-    { turn: 115, colors: 6, threshold: 8, minPiece: 3, maxPiece: 5 },
-    { turn: 150, colors: 6, threshold: 9, minPiece: 3, maxPiece: 5 },
-    { turn: 200, colors: 6, threshold: 10, minPiece: 4, maxPiece: 5 },
+    { turn: 10, colors: 5, threshold: 5, minPiece: 1, maxPiece: 4 },
+    { turn: 24, colors: 5, threshold: 6, minPiece: 1, maxPiece: 5 },
+    { turn: 40, colors: 6, threshold: 7, minPiece: 2, maxPiece: 5 },
+    { turn: 60, colors: 6, threshold: 8, minPiece: 2, maxPiece: 5 },
+    { turn: 85, colors: 6, threshold: 9, minPiece: 3, maxPiece: 5 },
+    { turn: 115, colors: 6, threshold: 10, minPiece: 3, maxPiece: 5 },
+    { turn: 150, colors: 6, threshold: 11, minPiece: 4, maxPiece: 5 },
   ],
 };
 
@@ -131,8 +137,12 @@ function applyGravity(board) {
   return moved;
 }
 
-/** All orthogonally connected same-colour groups of at least `threshold` cells. */
-function findGroups(board, threshold) {
+/**
+ * All orthogonally connected same-colour groups of at least `threshold` cells.
+ * When `onlyColor` is set, groups of every other colour are ignored — that is
+ * what keeps a cascade inside the colour that started it.
+ */
+function findGroups(board, threshold, onlyColor) {
   const seen = new Uint8Array(CFG.cols * CFG.rows);
   const groups = [];
   const stack = [];
@@ -154,7 +164,7 @@ function findGroups(board, threshold) {
         if (cc > 0) pushIf(cr, cc - 1);
         if (cc < CFG.cols - 1) pushIf(cr, cc + 1);
       }
-      if (group.length >= threshold) groups.push(group);
+      if (group.length >= threshold && (!onlyColor || color === onlyColor)) groups.push(group);
 
       function pushIf(nr, nc) {
         const ni = idx(nr, nc);
@@ -184,15 +194,20 @@ function chainMult(step) {
  * what turns one good placement into a five-step board-eating chain.
  */
 function resolve(board, threshold, feverMult) {
-  let step = 0, total = 0, cleared = 0;
+  let step = 0, total = 0, cleared = 0, chainColor = null, biggest = 0;
   for (;;) {
-    const t = step === 0 ? threshold : Math.min(threshold, CFG.chainThreshold);
-    const groups = findGroups(board, t);
+    const t = step === 0 ? threshold : Math.max(2, threshold - CFG.chainRelief);
+    // A cascade stays inside the colour that started it. Letting every colour
+    // chain at the low threshold meant one placement could unravel the whole
+    // board regardless of what the player had built.
+    const groups = findGroups(board, t, step === 0 || !CFG.monoColorChain ? null : chainColor);
     if (groups.length === 0) break;
+    if (step === 0) chainColor = board[groups[0][0]];
     let stepScore = 0;
     for (const g of groups) {
       stepScore += groupScore(g.length, t);
       cleared += g.length;
+      if (g.length > biggest) biggest = g.length;
       for (const i of g) board[i] = 0;
     }
     const simult = 1 + CFG.simultaneityBonus * (groups.length - 1);
@@ -201,7 +216,7 @@ function resolve(board, threshold, feverMult) {
     step++;
     if (step > 64) break; // safety
   }
-  return { score: Math.round(total), chainDepth: step, cleared };
+  return { score: Math.round(total), chainDepth: step, cleared, biggest };
 }
 
 function stackHeight(board) {
@@ -237,7 +252,16 @@ function activePieces(stage) {
   return PIECES.filter((p) => p.cells.length <= max && p.cells.length >= min);
 }
 
-function makePiece(rng, stage) {
+function dominantColors(board, count, available) {
+  const tally = new Array(available + 1).fill(0);
+  for (let i = 0; i < board.length; i++) if (board[i] !== 0 && board[i] <= available) tally[board[i]]++;
+  const ranked = [];
+  for (let c = 1; c <= available; c++) ranked.push([c, tally[c]]);
+  ranked.sort((a, b) => b[1] - a[1]);
+  return ranked.slice(0, count).map((entry) => entry[0]);
+}
+
+function makePiece(rng, stage, palette) {
   const colors = stage.colors;
   const pool = activePieces(stage);
   let totalW = 0;
@@ -245,7 +269,10 @@ function makePiece(rng, stage) {
   let roll = rng() * totalW;
   let def = pool[pool.length - 1];
   for (const p of pool) { roll -= p.w; if (roll <= 0) { def = p; break; } }
-  return { cells: def.cells, color: 1 + Math.floor(rng() * colors), id: def.id };
+  const color = palette && palette.length
+    ? palette[Math.floor(rng() * palette.length)]
+    : 1 + Math.floor(rng() * colors);
+  return { cells: def.cells, color, id: def.id };
 }
 
 /** True if the piece fits with its origin at (d, x) with every cell on an empty square. */
@@ -285,19 +312,22 @@ function playRun(seed, policy) {
   const board = emptyBoard();
   let score = 0, placements = 0, streak = 0, bestStreak = 0, heat = 0;
   let feverLeft = 0, feverEntries = 0, blastPlacements = 0;
-  let bestChain = 0, maxLevel = 0;
+  let bestChain = 0, maxLevel = 0, biggestGroup = 0, bigBlasts = 0, hugeBlasts = 0;
   const chainHist = {};
   let stage = CFG.stages[0];
+  let feverPalette = null;
   let tray = [makePiece(rng, stage), makePiece(rng, stage), makePiece(rng, stage)];
 
   for (;;) {
     const st = stageForTurn(placements);
     if (st.level > maxLevel) maxLevel = st.level;
     const base = CFG.baseThreshold || st.stage.threshold;
-    // Fever has to feel like a superpower, so it takes two cells off the
-    // requirement, never dropping below the chain threshold + 1.
-    const threshold = feverLeft > 0 ? Math.max(CFG.chainThreshold + 1, base - 2) : base;
-    const feverMult = feverLeft > 0 ? 2 : 1;
+    // Fever no longer lowers the requirement. Making blasts automatic during
+    // fever meant the board dissolved on its own and the player stopped
+    // mattering; instead fever narrows the tray palette (below), which hands
+    // the player the material to build one huge cluster themselves.
+    const threshold = base;
+    const feverMult = feverLeft > 0 ? CFG.feverScoreMult : 1;
 
     // gather every legal (pieceIndex, x)
     const options = [];
@@ -321,6 +351,9 @@ function playRun(seed, policy) {
       if (streak > bestStreak) bestStreak = streak;
       heat += 1 + res.chainDepth;
       if (res.chainDepth > bestChain) bestChain = res.chainDepth;
+      if (res.biggest > biggestGroup) biggestGroup = res.biggest;
+      if (res.biggest >= 10) bigBlasts++;
+      if (res.biggest >= 15) hugeBlasts++;
       chainHist[res.chainDepth] = (chainHist[res.chainDepth] || 0) + 1;
       if (feverLeft > 0) feverLeft += CFG.feverExtendPerBlast;
     } else {
@@ -329,21 +362,26 @@ function playRun(seed, policy) {
     }
     if (feverLeft > 0) {
       feverLeft--;
-      if (feverLeft === 0) heat = CFG.feverHeatAfter;
+      if (feverLeft === 0) { heat = CFG.feverHeatAfter; feverPalette = null; }
     } else if (heat >= CFG.feverHeatNeeded) {
       feverLeft = CFG.feverPlacements;
       feverEntries++;
       heat = 0;
+      // Hand the player the colours they already have the most of, so fever is
+      // an invitation to finish a structure rather than a free demolition.
+      feverPalette = dominantColors(board, CFG.feverPaletteSize, stage.colors);
     }
 
     if (tray.every((p) => p === null)) {
       stage = stageForTurn(placements).stage;
-      tray = [makePiece(rng, stage), makePiece(rng, stage), makePiece(rng, stage)];
+      const palette = feverLeft > 0 ? feverPalette : null;
+      tray = [makePiece(rng, stage, palette), makePiece(rng, stage, palette), makePiece(rng, stage, palette)];
     }
     if (placements >= CFG.safetyCap) break; // safety for degenerate policies
   }
 
-  return { score, placements, bestChain, bestStreak, feverEntries, blastPlacements, chainHist, maxLevel };
+  return { score, placements, bestChain, bestStreak, feverEntries, blastPlacements, chainHist,
+           maxLevel, biggestGroup, bigBlasts, hugeBlasts };
 }
 
 // ---------------------------------------------------------------- policies
@@ -462,6 +500,8 @@ function report(name, runs) {
   console.log(`blast rate   ${pct(blastP, allP)}% of placements detonate something`);
   console.log(`chains >=3   median per run ${median(deep)}  mean ${Math.round(mean(deep) * 10) / 10}`);
   console.log(`best chain   median ${median(runs.map((r) => r.bestChain))}  max ${Math.max(...runs.map((r) => r.bestChain))}`);
+  console.log(`biggest blast median ${median(runs.map((r) => r.biggestGroup))} cells  max ${Math.max(...runs.map((r) => r.biggestGroup))}`);
+  console.log(`big blasts   >=10 cells: ${Math.round(mean(runs.map((r) => r.bigBlasts)) * 10) / 10}/run   >=15 cells: ${Math.round(mean(runs.map((r) => r.hugeBlasts)) * 10) / 10}/run`);
   console.log(`fever        mean entries/run ${Math.round(mean(runs.map((r) => r.feverEntries)) * 10) / 10}`);
   console.log(`best streak  median ${median(runs.map((r) => r.bestStreak))}`);
   const levels = {};

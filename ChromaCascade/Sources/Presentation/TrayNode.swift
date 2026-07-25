@@ -146,6 +146,16 @@ final class TrayNode: SKNode {
         }
     }
 
+    /// Draws attention to the piece a hint refers to.
+    func pulsePiece(at index: Int) {
+        guard pieceNodes.indices.contains(index), let node = pieceNodes[index] else { return }
+        node.removeAction(forKey: "hint")
+        node.run(.repeat(.sequence([
+            .scale(to: 1.18, duration: 0.22),
+            .scale(to: 1.0, duration: 0.22),
+        ]), count: 6), withKey: "hint")
+    }
+
     func highlightSlot(_ index: Int, on: Bool) {
         guard slotNodes.indices.contains(index) else { return }
         slotNodes[index].strokeColor = on ? Theme.accent.withAlphaComponent(0.7)

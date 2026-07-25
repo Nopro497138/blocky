@@ -32,6 +32,7 @@ final class GameScene: SKScene {
     private var hudNode: HUDNode!
     private var bombButton: PillButton!
     private var rerollButton: PillButton!
+    private var hintButton: PillButton!
     private var pauseButton: PillButton!
     private var hintLabel: SKLabelNode!
 
@@ -167,16 +168,25 @@ final class GameScene: SKScene {
         worldNode.addChild(boardNode)
 
         let powerY = boardNode.position.y - 12 - powerHeight / 2
-        let buttonWidth = min(150, (size.width - margin * 2 - 16) / 2)
+        let gap: CGFloat = 8
+        let buttonWidth = (size.width - margin * 2 - gap * 2) / 3
+        let firstX = margin + buttonWidth / 2
+
+        hintButton = PillButton(title: "HINT", width: buttonWidth, height: powerHeight,
+                                tint: Theme.positive, fontSize: 16, identifier: "btn.hint")
+        hintButton.position = CGPoint(x: firstX, y: powerY)
+        hintButton.zPosition = 10
+        worldNode.addChild(hintButton)
+
         bombButton = PillButton(title: "BOMB", width: buttonWidth, height: powerHeight,
-                                tint: Theme.feverA, identifier: "btn.bomb")
-        bombButton.position = CGPoint(x: size.width / 2 - buttonWidth / 2 - 8, y: powerY)
+                                tint: Theme.feverA, fontSize: 16, identifier: "btn.bomb")
+        bombButton.position = CGPoint(x: firstX + buttonWidth + gap, y: powerY)
         bombButton.zPosition = 10
         worldNode.addChild(bombButton)
 
         rerollButton = PillButton(title: "REROLL", width: buttonWidth, height: powerHeight,
-                                  tint: Theme.accent, identifier: "btn.reroll")
-        rerollButton.position = CGPoint(x: size.width / 2 + buttonWidth / 2 + 8, y: powerY)
+                                  tint: Theme.accent, fontSize: 16, identifier: "btn.reroll")
+        rerollButton.position = CGPoint(x: firstX + (buttonWidth + gap) * 2, y: powerY)
         rerollButton.zPosition = 10
         worldNode.addChild(rerollButton)
 
@@ -206,10 +216,10 @@ final class GameScene: SKScene {
     private func showOpeningHint() {
         guard !Storage.seenTutorial else { return }
         Storage.seenTutorial = true
-        showHint("Drag blocks in. Connect \(engine.stage.threshold)+ of one colour to blast.", duration: 4.5)
+        showHintLabel("Drag blocks in. Connect \(engine.stage.threshold)+ of ONE colour to blast.", duration: 4.5)
     }
 
-    private func showHint(_ text: String, duration: TimeInterval = 2.2) {
+    private func showHintLabel(_ text: String, duration: TimeInterval = 2.2) {
         hintLabel.text = text
         hintLabel.removeAllActions()
         hintLabel.run(.sequence([
@@ -232,6 +242,7 @@ final class GameScene: SKScene {
         hudNode.setFeverActive(engine.isFever)
         bombButton.stopPulse()
         rerollButton.stopPulse()
+        boardNode.hideHint()
         updatePowerButtons()
         updateDanger()
         updateUnplayableHints()
@@ -242,6 +253,8 @@ final class GameScene: SKScene {
         bombButton.setEnabled(engine.bombCharges > 0)
         rerollButton.setBadge(engine.rerollCharges)
         rerollButton.setEnabled(engine.rerollCharges > 0)
+        hintButton.setEnabled(engine.hintAvailable)
+        hintButton.setTitle(engine.hintAvailable ? "HINT" : "HINT \(engine.turnsUntilHint)")
         if state != .bombTargeting { bombButton.setActive(false) }
     }
 
@@ -345,8 +358,12 @@ final class GameScene: SKScene {
             } else {
                 state = .bombTargeting
                 bombButton.setActive(true)
-                showHint("Tap a block to detonate a 3×3 area", duration: 6)
+                showHintLabel("Tap a block to detonate a 3×3 area", duration: 6)
             }
+        case "btn.hint":
+            guard state == .idle else { return }
+            hintButton.press()
+            showHint()
         case "btn.reroll":
             guard state == .idle, engine.rerollCharges > 0 else { return }
             rerollButton.press()
@@ -378,6 +395,33 @@ final class GameScene: SKScene {
         default:
             break
         }
+    }
+
+    // MARK: - Hint
+
+    /// Asks the evaluator for the strongest placement and shows it on the board.
+    private func showHint() {
+        guard let suggestion = engine.requestHint() else {
+            AudioManager.shared.play(.invalid, volume: 0.5)
+            showHintLabel(engine.hintAvailable ? "No move fits — use a power-up"
+                                               : "Hint ready in \(engine.turnsUntilHint)")
+            return
+        }
+        AudioManager.shared.play(.powerup, volume: 0.6)
+        Haptics.shared.tap()
+        boardNode.showHint(cells: suggestion.cells, color: suggestion.color)
+        trayNode.pulsePiece(at: suggestion.trayIndex)
+        updatePowerButtons()
+
+        let note: String
+        if suggestion.clearedCells > 0 {
+            note = "Detonates \(suggestion.biggestGroup) blocks for \(suggestion.immediateScore.grouped)"
+        } else if suggestion.clusterGain > 0 {
+            note = "Grows your biggest cluster by \(suggestion.clusterGain)"
+        } else {
+            note = "Safest placement — keeps the board open"
+        }
+        showHintLabel(note, duration: 3.0)
     }
 
     // MARK: - Dragging
@@ -566,19 +610,32 @@ final class GameScene: SKScene {
         fxLayer.addChild(FX.scorePopup(step.score, at: centroid, color: color,
                                        fontSize: min(34, cellSize * 0.72)))
 
-        AudioManager.shared.playBlast(step: step.index, cells: step.cellCount)
-        Haptics.shared.blast(chainStep: step.index, cells: step.cellCount)
-        shakeCamera(amplitude: min(16, 4 + CGFloat(step.index) * 3 + CGFloat(step.cellCount) * 0.3))
+        let biggest = step.groups.reduce(0) { max($0, $1.cells.count) }
+        let threshold = engine.activeThreshold
+        let overshoot = max(0, biggest - threshold)
 
-        if step.index >= 1 {
-            let title = Theme.chainTitle(depth: step.index + 1)
-            let multiplier = String(format: "×%.1f", step.multiplier)
+        // Size drives the whole reward signal: the louder, higher and shakier
+        // the feedback, the bigger the single-colour blob the player built.
+        AudioManager.shared.playBlast(step: step.index, size: overshoot, cells: step.cellCount)
+        Haptics.shared.blast(chainStep: step.index + overshoot / 3, cells: step.cellCount)
+        shakeCamera(amplitude: min(22, 4 + CGFloat(step.index) * 3 + CGFloat(overshoot) * 1.1))
+
+        if Theme.isBigBlast(size: biggest, threshold: threshold) {
+            let title = Theme.blastTitle(size: biggest, threshold: threshold)
             fxLayer.addChild(FX.banner(title: title,
+                                       subtitle: "\(biggest) BLOCKS · \(step.score.grouped)",
+                                       color: color,
+                                       at: CGPoint(x: size.width / 2, y: boardNode.position.y + boardNode.boardSize.height * 0.62),
+                                       width: size.width))
+            punchCamera(zoom: 1.0 - min(0.06, 0.006 * CGFloat(overshoot)))
+        } else if step.index >= 1 {
+            let multiplier = String(format: "×%.1f", step.multiplier)
+            fxLayer.addChild(FX.banner(title: Theme.chainTitle(depth: step.index + 1),
                                        subtitle: "CHAIN \(multiplier)",
                                        color: color,
                                        at: CGPoint(x: size.width / 2, y: boardNode.position.y + boardNode.boardSize.height * 0.62),
                                        width: size.width))
-            punchCamera(zoom: 1.0 - min(0.05, 0.012 * CGFloat(step.index)))
+            punchCamera(zoom: 0.985)
         }
 
         hudNode.punchScore()
@@ -643,7 +700,7 @@ final class GameScene: SKScene {
 
         if result.isStuck {
             AudioManager.shared.play(.invalid)
-            showHint("No moves left — use a power-up!", duration: 5)
+            showHintLabel("No moves left — use a power-up!", duration: 5)
             if engine.bombCharges > 0 { bombButton.pulse() }
             if engine.rerollCharges > 0 { rerollButton.pulse() }
         }
@@ -670,30 +727,11 @@ final class GameScene: SKScene {
             schedule(0.2) { [weak self] in self?.autoplayStep(remaining: remaining) }
             return
         }
-
-        var best: (index: Int, point: GridPoint, score: Int)?
-        for (index, piece) in engine.tray.enumerated() {
-            guard let piece = piece else { continue }
-            for point in engine.board.placements(for: piece.shape) {
-                var score = Int.random(in: 0...2)
-                for cell in piece.shape.cells {
-                    let row = cell.row + point.row
-                    let col = cell.col + point.col
-                    let neighbours = [GridPoint(row - 1, col), GridPoint(row + 1, col),
-                                      GridPoint(row, col - 1), GridPoint(row, col + 1)]
-                    for neighbour in neighbours where engine.board.color(at: neighbour.row, neighbour.col) == piece.color {
-                        score += 6
-                    }
-                }
-                if score > (best?.score ?? -1) {
-                    best = (index, point, score)
-                }
-            }
-        }
-
-        guard let move = best,
-              let result = engine.place(trayIndex: move.index, row: move.point.row, col: move.point.col) else { return }
-        trayNode.removePiece(at: move.index)
+        guard let move = engine.bestMove(),
+              let result = engine.place(trayIndex: move.trayIndex,
+                                        row: move.origin.row,
+                                        col: move.origin.col) else { return }
+        trayNode.removePiece(at: move.trayIndex)
         play(result: result)
         schedule(0.35) { [weak self] in self?.autoplayStep(remaining: remaining - 1) }
     }
@@ -753,11 +791,23 @@ final class GameScene: SKScene {
 
         punchCamera(zoom: 0.94)
         shakeCamera(amplitude: 10, duration: 0.4)
+        let palette = engine.feverPalette.map { colorName($0) }.joined(separator: " + ")
         fxLayer.addChild(FX.banner(title: "FEVER!",
-                                   subtitle: "×2 SCORE · EASIER BLASTS",
+                                   subtitle: "×3 SCORE · ONLY \(palette)",
                                    color: Theme.feverB,
                                    at: CGPoint(x: size.width / 2, y: boardNode.position.y + boardNode.boardSize.height * 0.5),
                                    width: size.width))
+    }
+
+    private func colorName(_ color: BlockColor) -> String {
+        switch color {
+        case .cyan: return "CYAN"
+        case .magenta: return "MAGENTA"
+        case .lime: return "LIME"
+        case .amber: return "AMBER"
+        case .violet: return "VIOLET"
+        case .coral: return "CORAL"
+        }
     }
 
     private func exitFever() {

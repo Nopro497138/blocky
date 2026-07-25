@@ -49,6 +49,24 @@ enum Theme {
 
     // MARK: - Chain banners
 
+    /// Escalating praise for the size of a single detonated group. Size is the
+    /// reward curve now, so this is the headline the player sees most often.
+    static func blastTitle(size: Int, threshold: Int) -> String {
+        switch size - threshold {
+        case ..<2: return "BLAST"
+        case 2..<5: return "BIG BLAST"
+        case 5..<9: return "MASSIVE"
+        case 9..<13: return "COLOSSAL"
+        case 13..<18: return "MONSTROUS"
+        default: return "SUPERNOVA"
+        }
+    }
+
+    /// True once a blast is big enough to deserve the full screen treatment.
+    static func isBigBlast(size: Int, threshold: Int) -> Bool {
+        size - threshold >= 2
+    }
+
     /// Escalating praise. Index is the chain depth, clamped.
     static func chainTitle(depth: Int) -> String {
         switch depth {

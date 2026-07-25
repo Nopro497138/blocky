@@ -115,7 +115,10 @@ struct Board {
     // MARK: - Groups
 
     /// All orthogonally connected same-colour groups of at least `minSize` cells.
-    func groups(minSize: Int) -> [[GridPoint]] {
+    ///
+    /// When `color` is given, groups of every other colour are ignored — that is
+    /// what keeps a cascade inside the colour that started it.
+    func groups(minSize: Int, color: BlockColor? = nil) -> [[GridPoint]] {
         var seen = [Bool](repeating: false, count: cells.count)
         var result: [[GridPoint]] = []
         var stack: [Int] = []
@@ -124,7 +127,7 @@ struct Board {
             for col in 0..<cols {
                 let start = index(row, col)
                 if seen[start] || cells[start] == 0 { continue }
-                let color = cells[start]
+                let cellColor = cells[start]
 
                 var group: [Int] = []
                 stack.removeAll(keepingCapacity: true)
@@ -135,13 +138,13 @@ struct Board {
                     group.append(current)
                     let r = current / cols
                     let c = current % cols
-                    if r > 0 { visit(r - 1, c, color, &seen, &stack) }
-                    if r < rows - 1 { visit(r + 1, c, color, &seen, &stack) }
-                    if c > 0 { visit(r, c - 1, color, &seen, &stack) }
-                    if c < cols - 1 { visit(r, c + 1, color, &seen, &stack) }
+                    if r > 0 { visit(r - 1, c, cellColor, &seen, &stack) }
+                    if r < rows - 1 { visit(r + 1, c, cellColor, &seen, &stack) }
+                    if c > 0 { visit(r, c - 1, cellColor, &seen, &stack) }
+                    if c < cols - 1 { visit(r, c + 1, cellColor, &seen, &stack) }
                 }
 
-                if group.count >= minSize {
+                if group.count >= minSize, color == nil || color?.rawValue == cellColor {
                     result.append(group.map { GridPoint($0 / cols, $0 % cols) })
                 }
             }
@@ -155,6 +158,44 @@ struct Board {
             seen[i] = true
             stack.append(i)
         }
+    }
+
+    /// The `count` colours the board currently holds most of, most common first.
+    /// Fever uses this to narrow the tray to what the player has already built.
+    func dominantColors(count: Int, from palette: [BlockColor]) -> [BlockColor] {
+        var tally: [UInt8: Int] = [:]
+        for value in cells where value != 0 {
+            tally[value, default: 0] += 1
+        }
+        let ranked = palette.sorted { lhs, rhs in
+            let left = tally[lhs.rawValue] ?? 0
+            let right = tally[rhs.rawValue] ?? 0
+            return left == right ? lhs.rawValue < rhs.rawValue : left > right
+        }
+        return Array(ranked.prefix(max(1, count)))
+    }
+
+    /// Size of the largest same-colour cluster on the board. The move evaluator
+    /// rewards growing this, because size is what a blast now pays for.
+    var largestCluster: Int {
+        groups(minSize: 1).reduce(0) { max($0, $1.count) }
+    }
+
+    /// Empty cells with no empty orthogonal neighbour, weighted — the board's
+    /// dead space, which is what eventually kills a run.
+    var deadSpace: Int {
+        var total = 0
+        for row in 0..<rows {
+            for col in 0..<cols where cells[index(row, col)] == 0 {
+                var free = 0
+                if row > 0 && cells[index(row - 1, col)] == 0 { free += 1 }
+                if row < rows - 1 && cells[index(row + 1, col)] == 0 { free += 1 }
+                if col > 0 && cells[index(row, col - 1)] == 0 { free += 1 }
+                if col < cols - 1 && cells[index(row, col + 1)] == 0 { free += 1 }
+                if free == 0 { total += 3 } else if free == 1 { total += 1 }
+            }
+        }
+        return total
     }
 
     // MARK: - Mutation

@@ -11,6 +11,7 @@ final class BoardNode: SKNode {
     private var blocks: [SKSpriteNode?]
     private let cellLayer = SKNode()
     private let ghostLayer = SKNode()
+    private let hintLayer = SKNode()
     private var dangerLine: SKShapeNode!
     private var frameNode: SKShapeNode!
 
@@ -27,8 +28,10 @@ final class BoardNode: SKNode {
         buildBackground()
         addChild(cellLayer)
         addChild(ghostLayer)
+        addChild(hintLayer)
         cellLayer.zPosition = 10
         ghostLayer.zPosition = 8
+        hintLayer.zPosition = 9
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -182,6 +185,42 @@ final class BoardNode: SKNode {
                 .fadeAlpha(to: 1.0, duration: 0.32),
             ])), withKey: "pulse")
         }
+    }
+
+    // MARK: - Hint
+
+    /// Marks the placement the evaluator recommends. Drawn as an outline rather
+    /// than a filled ghost so it cannot be confused with the piece being dragged.
+    func showHint(cells: [GridPoint], color: BlockColor, duration: TimeInterval = 4.0) {
+        hideHint()
+        let tint = Theme.color(for: color)
+        for cell in cells {
+            let rect = CGRect(x: -cellSize / 2 + cellSize * 0.08,
+                              y: -cellSize / 2 + cellSize * 0.08,
+                              width: cellSize * 0.84, height: cellSize * 0.84)
+            let node = SKShapeNode(rect: rect, cornerRadius: cellSize * 0.2)
+            node.strokeColor = tint
+            node.lineWidth = 3
+            node.glowWidth = 3
+            node.fillColor = tint.withAlphaComponent(0.14)
+            node.position = position(row: cell.row, col: cell.col)
+            hintLayer.addChild(node)
+        }
+        hintLayer.alpha = 0
+        hintLayer.run(.sequence([
+            .fadeIn(withDuration: 0.15),
+            .repeat(.sequence([.fadeAlpha(to: 0.45, duration: 0.4),
+                               .fadeAlpha(to: 1.0, duration: 0.4)]),
+                    count: max(1, Int(duration / 0.8))),
+            .fadeOut(withDuration: 0.3),
+            .run { [weak self] in self?.hintLayer.removeAllChildren() },
+        ]))
+    }
+
+    func hideHint() {
+        hintLayer.removeAllActions()
+        hintLayer.removeAllChildren()
+        hintLayer.alpha = 1
     }
 
     func hideGhost() {

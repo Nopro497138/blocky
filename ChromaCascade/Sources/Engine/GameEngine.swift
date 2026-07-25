@@ -41,6 +41,8 @@ struct TurnResult {
     var earnedPowerUps: [PowerUp] = []
     var isStuck: Bool = false
     var isGameOver: Bool = false
+    /// Cells in the single largest group this turn — the headline number now.
+    var biggestGroup: Int = 0
 
     var chainDepth: Int { steps.count }
     var clearedCells: Int { steps.reduce(0) { $0 + $1.cellCount } }
@@ -64,6 +66,10 @@ final class GameEngine {
     private(set) var rerollCharges = 0
     private(set) var isGameOver = false
     private(set) var totalBlasts = 0
+    private(set) var biggestGroupEver = 0
+    /// The two colours the tray is restricted to during fever, empty otherwise.
+    private(set) var feverPalette: [BlockColor] = []
+    private var lastHintTurn = -GameConfig.hintCooldown
 
     private var rng = SeededGenerator(seed: 1)
     private var serialCounter = 0
@@ -76,11 +82,12 @@ final class GameEngine {
     var heatFraction: Double { min(1.0, heat / GameConfig.feverHeatNeeded) }
 
     /// Cells a group needs right now to *start* a detonation.
-    var activeThreshold: Int {
-        isFever
-            ? max(GameConfig.chainThreshold + 1, stage.threshold - GameConfig.feverThresholdRelief)
-            : stage.threshold
-    }
+    ///
+    /// Fever deliberately does *not* lower this. Making blasts automatic during
+    /// fever meant the board cleared itself and the player stopped mattering;
+    /// fever now narrows the tray palette instead, so the reward is the chance
+    /// to build one enormous cluster by hand.
+    var activeThreshold: Int { stage.threshold }
 
     private var feverMultiplier: Double {
         isFever ? GameConfig.feverScoreMultiplier : 1.0
@@ -106,6 +113,9 @@ final class GameEngine {
         rerollCharges = 0
         isGameOver = false
         totalBlasts = 0
+        biggestGroupEver = 0
+        feverPalette = []
+        lastHintTurn = -GameConfig.hintCooldown
         serialCounter = 0
         nextBombScore = GameConfig.bombEveryPoints
         nextRerollScore = GameConfig.rerollEveryPoints
@@ -127,7 +137,8 @@ final class GameEngine {
                 break
             }
         }
-        let palette = BlockColor.palette(count: stage.colors)
+        let stagePalette = BlockColor.palette(count: stage.colors)
+        let palette = feverPalette.isEmpty ? stagePalette : feverPalette
         let color = palette[rng.int(below: palette.count)]
         serialCounter += 1
         return Piece(shape: chosen, color: color, serial: serialCounter)
@@ -157,85 +168,13 @@ final class GameEngine {
         return board.fits(piece.shape, row: row, col: col)
     }
 
-    // MARK: - Scoring helpers
-
-    private func groupScore(count: Int, threshold: Int) -> Int {
-        let over = max(0, count - threshold)
-        return 10 * count + 5 * over * over
-    }
-
-    private func chainMultiplier(_ step: Int) -> Double {
-        let table = GameConfig.chainMultipliers
-        return step < table.count ? table[step] : table[table.count - 1]
-    }
-
     // MARK: - Cascade
 
-    /// Detonates until the board is stable, returning one step per rung.
-    ///
-    /// The first step needs `startThreshold` cells; every follow-up only needs
-    /// `GameConfig.chainThreshold`, because the shockwave destabilises smaller
-    /// clusters. That is the entire reason chains exist in this game.
     private func runCascade(startThreshold: Int, bombCells: [GridPoint]?) -> [CascadeStep] {
-        var steps: [CascadeStep] = []
-        var stepIndex = 0
-
-        if let bombCells = bombCells {
-            var byColor: [UInt8: [GridPoint]] = [:]
-            for point in bombCells {
-                if let color = board.color(at: point.row, point.col) {
-                    byColor[color.rawValue, default: []].append(point)
-                }
-            }
-            var groups: [DetonatedGroup] = []
-            var raw = 0
-            for value in byColor.keys.sorted() {
-                guard let color = BlockColor(rawValue: value), let points = byColor[value] else { continue }
-                let groupValue = 12 * points.count
-                raw += groupValue
-                groups.append(DetonatedGroup(cells: points, color: color, score: groupValue))
-            }
-            if !groups.isEmpty {
-                board.remove(bombCells)
-                let falls = board.applyGravity()
-                let multiplier = feverMultiplier
-                steps.append(CascadeStep(index: 0,
-                                         groups: groups,
-                                         falls: falls,
-                                         multiplier: multiplier,
-                                         score: Int((Double(raw) * multiplier).rounded())))
-            }
-            stepIndex = 1
-        }
-
-        while steps.count < 64 {
-            let threshold = stepIndex == 0 ? startThreshold : min(startThreshold, GameConfig.chainThreshold)
-            let found = board.groups(minSize: threshold)
-            if found.isEmpty { break }
-
-            var groups: [DetonatedGroup] = []
-            var rawScore = 0
-            for cells in found {
-                guard let first = cells.first, let color = board.color(at: first.row, first.col) else { continue }
-                let value = groupScore(count: cells.count, threshold: threshold)
-                rawScore += value
-                groups.append(DetonatedGroup(cells: cells, color: color, score: value))
-                board.remove(cells)
-            }
-            if groups.isEmpty { break }
-
-            let falls = board.applyGravity()
-            let simultaneity = 1.0 + GameConfig.simultaneityBonus * Double(groups.count - 1)
-            let multiplier = chainMultiplier(stepIndex) * simultaneity * feverMultiplier
-            steps.append(CascadeStep(index: stepIndex,
-                                     groups: groups,
-                                     falls: falls,
-                                     multiplier: multiplier,
-                                     score: Int((Double(rawScore) * multiplier).rounded())))
-            stepIndex += 1
-        }
-
-        return steps
+        CascadeResolver.resolve(board: &board,
+                                startThreshold: startThreshold,
+                                feverMultiplier: feverMultiplier,
+                                bombCells: bombCells)
     }
 
     // MARK: - Turns
@@ -280,6 +219,39 @@ final class GameEngine {
         return result
     }
 
+    // MARK: - Hints
+
+    /// True when a hint may be requested again.
+    var hintAvailable: Bool {
+        !isGameOver && turn - lastHintTurn >= GameConfig.hintCooldown
+    }
+
+    var turnsUntilHint: Int {
+        max(0, GameConfig.hintCooldown - (turn - lastHintTurn))
+    }
+
+    /// The strongest placement on the board right now, or nil if nothing fits.
+    ///
+    /// Deliberately rate-limited: an always-on perfect suggestion would play the
+    /// game for the player. It is meant for the moment you cannot see a way out.
+    func requestHint() -> MoveSuggestion? {
+        guard hintAvailable else { return nil }
+        let suggestion = MoveEvaluator.best(board: board,
+                                            tray: tray,
+                                            threshold: activeThreshold,
+                                            feverMultiplier: feverMultiplier)
+        if suggestion != nil { lastHintTurn = turn }
+        return suggestion
+    }
+
+    /// Used by the demo/autoplay driver; never rate-limited.
+    func bestMove() -> MoveSuggestion? {
+        MoveEvaluator.best(board: board,
+                           tray: tray,
+                           threshold: activeThreshold,
+                           feverMultiplier: feverMultiplier)
+    }
+
     /// Consumes a reroll charge and replaces the whole tray.
     func useReroll() -> Bool {
         guard !isGameOver, rerollCharges > 0 else { return false }
@@ -298,6 +270,13 @@ final class GameEngine {
             result.gainedScore += step.score
         }
         score += result.gainedScore
+
+        for step in result.steps {
+            for group in step.groups where group.cells.count > result.biggestGroup {
+                result.biggestGroup = group.cells.count
+            }
+        }
+        biggestGroupEver = max(biggestGroupEver, result.biggestGroup)
 
         if chainDepth > 0 {
             totalBlasts += 1
@@ -318,11 +297,17 @@ final class GameEngine {
                 feverPlacementsLeft -= 1
                 if feverPlacementsLeft == 0 {
                     heat = GameConfig.feverHeatAfter
+                    feverPalette = []
                     result.feverEnded = true
                 }
             } else if heat >= GameConfig.feverHeatNeeded {
                 feverPlacementsLeft = GameConfig.feverPlacements
                 heat = 0
+                // Fever hands over the colours the board already holds most of,
+                // so it reads as "finish what you started" rather than as free
+                // demolition.
+                feverPalette = board.dominantColors(count: GameConfig.feverPaletteSize,
+                                                    from: BlockColor.palette(count: stage.colors))
                 result.feverStarted = true
             }
             turn += 1

@@ -25,18 +25,28 @@ enum GameConfig {
 
     // Detonation ----------------------------------------------------------
 
-    /// Follow-up steps of a cascade only need this many cells. The asymmetry
-    /// between `Stage.threshold` and this number is what makes chains happen at
-    /// all — see DESIGN.md §2.
-    static let chainThreshold = 3
-    /// Fever takes this much off the requirement, never below `chainThreshold + 1`.
-    static let feverThresholdRelief = 2
+    /// How many cells fewer than the opening requirement a follow-up rung of a
+    /// cascade needs. Kept at 1 deliberately: an earlier build let follow-up
+    /// rungs fire at 3 cells regardless of the stage requirement, which turned
+    /// every blast into an automatic board-wide demolition instead of something
+    /// the player earned.
+    static let chainRelief = 1
+
+    /// A cascade stays inside the colour that started it. Without this a single
+    /// placement detonated clusters of every colour at once, which read as the
+    /// board falling apart on its own rather than as a colour puzzle.
+    static let monoColorChain = true
 
     // Scoring -------------------------------------------------------------
 
-    static let chainMultipliers: [Double] = [1, 1.4, 2, 3, 4.5, 6.5, 9, 12, 16, 21]
+    static let chainMultipliers: [Double] = [1, 1.6, 2.4, 3.6, 5.2, 7.5, 10, 14, 19, 25]
     static let simultaneityBonus = 0.25
-    static let feverScoreMultiplier = 2.0
+    static let feverScoreMultiplier = 3.0
+
+    /// Size is the reward curve now, so the bonus for overshooting the
+    /// requirement grows quadratically and steeply: a 20-cell blob is worth far
+    /// more than four 5-cell ones.
+    static let sizeBonusFactor = 6
 
     // Fever ---------------------------------------------------------------
 
@@ -46,11 +56,19 @@ enum GameConfig {
     static let feverExtendPerBlast = 2
     static let feverHeatAfter = 8.0
 
+    /// During fever the tray draws from only this many colours — the ones the
+    /// board already holds most of. Fever is an invitation to finish a huge
+    /// cluster, not a period where the board clears itself.
+    static let feverPaletteSize = 2
+
     // Power-ups -----------------------------------------------------------
 
-    static let bombEveryPoints = 6000
-    static let rerollEveryPoints = 9000
+    static let bombEveryPoints = 4000
+    static let rerollEveryPoints = 6000
     static let maxCharges = 3
+
+    /// Placements that must pass between two hints.
+    static let hintCooldown = 4
 
     // Difficulty ladder ---------------------------------------------------
 
@@ -59,13 +77,13 @@ enum GameConfig {
     /// the run then never ends. See DESIGN.md §4.
     static let stages: [Stage] = [
         Stage(firstTurn: 0,   colors: 4, threshold: 5,  minPiece: 1, maxPiece: 4, name: "SPARK"),
-        Stage(firstTurn: 15,  colors: 5, threshold: 5,  minPiece: 1, maxPiece: 4, name: "FLUX"),
-        Stage(firstTurn: 35,  colors: 5, threshold: 6,  minPiece: 1, maxPiece: 5, name: "SURGE"),
-        Stage(firstTurn: 60,  colors: 6, threshold: 6,  minPiece: 2, maxPiece: 5, name: "PRISM"),
-        Stage(firstTurn: 85,  colors: 6, threshold: 7,  minPiece: 2, maxPiece: 5, name: "NOVA"),
-        Stage(firstTurn: 115, colors: 6, threshold: 8,  minPiece: 3, maxPiece: 5, name: "PULSAR"),
-        Stage(firstTurn: 150, colors: 6, threshold: 9,  minPiece: 3, maxPiece: 5, name: "QUASAR"),
-        Stage(firstTurn: 200, colors: 6, threshold: 10, minPiece: 4, maxPiece: 5, name: "SINGULARITY"),
+        Stage(firstTurn: 10,  colors: 5, threshold: 5,  minPiece: 1, maxPiece: 4, name: "FLUX"),
+        Stage(firstTurn: 24,  colors: 5, threshold: 6,  minPiece: 1, maxPiece: 5, name: "SURGE"),
+        Stage(firstTurn: 40,  colors: 6, threshold: 7,  minPiece: 2, maxPiece: 5, name: "PRISM"),
+        Stage(firstTurn: 60,  colors: 6, threshold: 8,  minPiece: 2, maxPiece: 5, name: "NOVA"),
+        Stage(firstTurn: 85,  colors: 6, threshold: 9,  minPiece: 3, maxPiece: 5, name: "PULSAR"),
+        Stage(firstTurn: 115, colors: 6, threshold: 10, minPiece: 3, maxPiece: 5, name: "QUASAR"),
+        Stage(firstTurn: 150, colors: 6, threshold: 11, minPiece: 4, maxPiece: 5, name: "SINGULARITY"),
     ]
 
     static func stageIndex(forTurn turn: Int) -> Int {

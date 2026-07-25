@@ -101,11 +101,12 @@ final class AudioManager {
         play(name: id.rawValue, volume: volume)
     }
 
-    /// One rung of a cascade. Later steps are louder and higher — the sound is
-    /// the reward curve.
-    func playBlast(step: Int, cells: Int) {
-        let tone = min(AudioManager.blastToneCount, max(1, step + 1))
-        let volume = min(1.0, 0.7 + Float(cells) * 0.02)
+    /// A detonation. The tone climbs with how far the group overshot the
+    /// requirement, so a 20-block blob literally sounds higher and louder than a
+    /// bare-minimum one — the audio *is* the reward curve.
+    func playBlast(step: Int, size overshoot: Int, cells: Int) {
+        let tone = min(AudioManager.blastToneCount, max(1, 1 + step + overshoot / 2))
+        let volume = min(1.0, 0.68 + Float(cells) * 0.02)
         play(name: "blast_\(tone)", volume: volume)
     }
 
