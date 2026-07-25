@@ -26,7 +26,9 @@ final class GameViewController: UIViewController {
         guard skView.scene == nil, skView.bounds.width > 0 else { return }
         // The scene is presented only once the view has its real size, so the
         // layout maths sees the device's actual bounds and safe areas.
-        let scene = MenuScene(size: skView.bounds.size)
+        let scene: SKScene = DebugOptions.startsInGame
+            ? GameScene(size: skView.bounds.size)
+            : MenuScene(size: skView.bounds.size)
         scene.scaleMode = .resizeFill
         skView.presentScene(scene)
     }

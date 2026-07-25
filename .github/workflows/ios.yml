@@ -40,3 +40,19 @@ jobs:
           path: build/*.ipa
           if-no-files-found: error
           retention-days: 30
+
+      # A green compile does not mean the game runs. This boots it in a
+      # simulator, lets it play itself and screenshots the result.
+      - name: Runtime smoke test
+        run: |
+          chmod +x scripts/smoke-test.sh
+          ./scripts/smoke-test.sh
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChromaCascade-screenshots
+          path: build/screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 30

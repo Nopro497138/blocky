@@ -75,8 +75,17 @@ final class GameScene: SKScene {
         AudioManager.shared.startMusic()
         Haptics.shared.prepare()
 
+        if let seed = DebugOptions.seed {
+            engine.startNewGame(seed: seed)
+        }
+
         refreshAll(animated: false)
         showOpeningHint()
+
+        let moves = DebugOptions.autoplayMoves
+        if moves > 0 {
+            schedule(1.0) { [weak self] in self?.autoplayStep(remaining: moves) }
+        }
     }
 
     override func willMove(from view: SKView) {
@@ -644,6 +653,45 @@ final class GameScene: SKScene {
             return
         }
         run(.sequence([.wait(forDuration: delay), .run(block)]))
+    }
+
+    // MARK: - Autoplay (CI smoke test only)
+
+    /// Plays the game by itself so the smoke test can screenshot a populated
+    /// board. Prefers placements that touch same-colour cells, which is enough
+    /// to make it build clusters and set off real cascades.
+    private func autoplayStep(remaining: Int) {
+        guard remaining > 0, !engine.isGameOver else { return }
+        guard state == .idle else {
+            schedule(0.2) { [weak self] in self?.autoplayStep(remaining: remaining) }
+            return
+        }
+
+        var best: (index: Int, point: GridPoint, score: Int)?
+        for (index, piece) in engine.tray.enumerated() {
+            guard let piece = piece else { continue }
+            for point in engine.board.placements(for: piece.shape) {
+                var score = Int.random(in: 0...2)
+                for cell in piece.shape.cells {
+                    let row = cell.row + point.row
+                    let col = cell.col + point.col
+                    let neighbours = [GridPoint(row - 1, col), GridPoint(row + 1, col),
+                                      GridPoint(row, col - 1), GridPoint(row, col + 1)]
+                    for neighbour in neighbours where engine.board.color(at: neighbour.row, neighbour.col) == piece.color {
+                        score += 6
+                    }
+                }
+                if score > (best?.score ?? -1) {
+                    best = (index, point, score)
+                }
+            }
+        }
+
+        guard let move = best,
+              let result = engine.place(trayIndex: move.index, row: move.point.row, col: move.point.col) else { return }
+        trayNode.removePiece(at: move.index)
+        play(result: result)
+        schedule(0.35) { [weak self] in self?.autoplayStep(remaining: remaining - 1) }
     }
 
     // MARK: - Camera
